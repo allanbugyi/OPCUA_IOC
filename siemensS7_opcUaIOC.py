@@ -1,11 +1,22 @@
 # -*- coding: utf8 -*-
+######################################################################################################################################
+#	EPICS IOC developed with DLS Softioc Framework with support for OPC UA communication based on FreeOpcUa python package       #
+#	Brazilian Synchroton Light Laboratory - Campinas, 06/xx/2018								     #
+#	Author: Allan Serra Braga Bugyi	(allan.bugyi@lnls.br)									     #
+#	In response to Ocommon's occurrence: 6134										     #
+#	Version: 1.0														     #
+#	Tested  - Siemens PLC S7-1500										     		     #
+######################################################################################################################################
+
 import time
+import subprocess
+from sys import argv
 
 from pkg_resources import require
 require('cothread==2.14')
 require('epicsdbbuilder==development')
 
-# Import basic Diamond softioc framework
+# Import basic DLS softIoc framework
 from softioc import softioc, builder, device
 
 #FreeOpcUa python package
@@ -14,8 +25,31 @@ from opcua import Client, ua
 #Set IOC's name
 builder.SetDeviceName('CP_HVAC')
 
+#Automated PV generation from OPC UA XML schema
+nodeExtraction_xml = subprocess.check_output(['sed', '-n', '/^<UAVariable.*BrowseName=".*"*ParentNodeId="ns=.*;s=.*".*DataType=".*"/p', argv[1]])
+#Extracting NodeId, BrowseName, ParentNodeId, DataType, AccessLevel
+for line in nodeExtraction_xml.splitlines():
+	#Some pre-processing due to Siemens PLC broken XML
+	newline = line.replace('&quot;', "") 
+	left_junk_exclusion = newline[20:]
+	split_on_whitespaces = left_junk_exclusion.split(" ")
+
+	#Extracting NodeId
+	nodeId_value = split_on_whitespaces[0].rstrip('"')
+	#Extracting BrowseName
+	browseName = split_on_whitespaces[1].replace('BrowseName="', "")
+	browseName = browseName.rstrip('"')
+	#Extracting ParentNodeId
+	parentNodeId = split_on_whitespaces[2].replace('ParentNodeId="', "")
+	parentNodeId = parentNodeId.rstrip('"')
+	#Extracting DataType	
+	dataType = split_on_whitespaces[3].replace('DataType="', "")
+	dataType = dataType.rstrip('"')
+	dataType = dataType.rstrip('">')
+	
+
 #Create INPUT PVs
-pv_23B18            = builder.longIn("23B18", )		#Temperatura precisão Aquecedor Fino
+pv_23B18            = builder.longIn("23B18")		#Temperatura precisão Aquecedor Fino
 pv_23B19            = builder.longIn("23B19")		#Temperatura Ambiente 1
 pv_23B20            = builder.longIn("23B20")		#Temperatura Ambiente 2
 pv_23B21            = builder.longIn("23B21")		#Temperatura Ambiente 3
@@ -74,25 +108,37 @@ pv_DQ_RESERVE1		= builder.boolOut("DQ_RESERVE1")	#RESERVE 1
 pv_DQ_RESERVE2		= builder.boolOut("DQ_RESERVE2")	#RESERVE 2
 pv_ResetSecuritySystem	= builder.boolOut("Reset_Security_System")#Reset Security System
 
+#lists of PVs grouped by category
+inputPVs_list = [pv_23B18, pv_23B19, pv_23B20, pv_23B21, pv_23B22, pv_23B23, pv_23B24_H, pv_23B24_T, pv_CP_23B10, pv_CP_23B11, pv_CP_23B13, pv_CP_23B14_H, pv_CP_23B14_T, pv_CP_23B15, 			 pv_CP_23B16_H, pv_CP_23B16_T, pv_CP_23B17, pv_CP_23B25_H, pv_CP_23B25_T, pv_CP_23B26, pv_CP_23B27, pv_CP_23B28, pv_CP_23B29, pv_CP_23B30, pv_CP_23B31, 		 			 pv_CP_23M10_RET, pv_CP_23M7_RET, pv_CP_23M8_RET, pv_CP_23M9_FDB_Hz, pv_CP_23M9_Status, pv_CP_23X1_RET, pv_Emergencia_Gases, pv_StatusContatorAQ1, 			  			 pv_StatusContatorAQ1_1A, pv_StatusDisjuntorMotor1]
+
+outputPVs_list = [pv_AQ_Reserve, pv_CP_PLUS_CP_23W3, pv_CP_23M10, pv_CP_23M12, pv_CP_23M7, pv_CP_23M8, pv_CP_23M9_ACK, pv_CP_23M9_Freq_Hz, pv_CP_23M9_Jog, pv_CP_23M9_On_Off, 			 pv_CP_23M9_On_Off, pv_CP_23M9_Reverso, pv_CP_23W2, pv_CP_23X1, pv_DQ_RESERVE1, pv_DQ_RESERVE2, pv_ResetSecuritySystem] 
+
 #Create OPCUA client
 client = Client("opc.tcp://10.2.121.202:4840")
  
 try:
 	#Establish connection with OPC UA Server
 	client.connect()
-
-	#OPC UA parent Node from INPUT PVs
-	parentNode_INPUT_PVs = client.get_node("ns=3;s=Inputs")
+	
+	#OPC UA parent Node from 'INPUT' PVs
+	parentNode_INPUT_PVs 	= client.get_node("ns=3;s=Inputs")
      
-	#OPC UA parent Node from OUTPUT PVs
-	parentNode_OUTPUT_PVs = client.get_node("ns=3;s=Outputs")
+	#OPC UA parent Node from 'OUTPUT' PVs
+	parentNode_OUTPUT_PVs	= client.get_node("ns=3;s=Outputs")
+
+	
+	#specific OPC UA parent Nodes from Siemens S7-1500
+	#OPC UA parent Node from 'HMI' PVs
+	parentNode_HMI_PVs 		= client.get_node("ns=3;s=PID_memories")
+	#OPC UA parent Node from 'PID_memories' PVs
+	parentNode_PID_memories_PVs 	= client.get_node("ns=3;s=HMI")
 	
 	#function for monitoring the specified INPUT PV, equivalent to camonitor Channel Access command
 	def monitorPV (scan_period, pv):	
 		#preparing string equivalent to BrowseName field format from the Node (which represents the PV) in OPC UA Server address space
 		pv_name_str = pv.name 				#storing the pv's complete name 
 		record_name = pv_name_str[8:]			#removing the Device prefix from the pv's name
-		opcua_node_browseName = "3:"+record_name 	#adding the level (in this case 3) and setting the BrowseName 
+		opcua_node_browseName = "3:"+record_name 	#adding the level found in OPC UA server's address space (in this case 3) and setting the BrowseName 
 		#executes till user terminates		
 		try:		
 			while True:
@@ -103,12 +149,14 @@ try:
 		except KeyboardInterrupt, e:
 			print "\n- Stopped Monitoring -"
 	
-	#functions to read and write to specific OUTPUT PV, equivalent to caget and caput Channel Access commands
+
+	#readPV and writePV: functions to read and write to specific PVs, equivalent to caget and caput Channel Access commands
+	
 	def readPV (pv):
 		#preparing string equivalent to BrowseName field format from the Node (which represents the PV) in OPC UA Server address space
 		pv_name_str = pv.name 				#storing the pv's complete name 
 		record_name = pv_name_str[8:]			#removing the Device prefix from the pv's name
-		opcua_node_browseName = "3:"+record_name 	#adding the level (in this case 3) and setting the BrowseName 
+		opcua_node_browseName = "3:"+record_name 	#adding the level found in OPC UA server's address space (in this case 3) and setting the BrowseName 
 		opcua_childNode_pv = parentNode_OUTPUT_PVs.get_child(opcua_node_browseName)
 		(pv).set(int (opcua_childNode_pv.get_value()))
 		print((pv.name) + "\t" + str((pv).get()))
@@ -117,7 +165,7 @@ try:
 		#preparing string equivalent to BrowseName field format from the Node (which represents the PV) in OPC UA Server address space
 		pv_name_str = pv.name 				#storing the pv's complete name 
 		record_name = pv_name_str[8:]			#removing the Device prefix from the pv's name
-		opcua_node_browseName = "3:"+record_name 	#adding the level (in this case 3) and setting the BrowseName 
+		opcua_node_browseName = "3:"+record_name 	#adding the level found in OPC UA server's address space (in this case 3) and setting the BrowseName 
 		opcua_childNode_pv = parentNode_OUTPUT_PVs.get_child(opcua_node_browseName)
 		(pv).set(int (opcua_childNode_pv.get_value()))
 		print((pv.name) + "\tOld value: " + str((pv).get()))
