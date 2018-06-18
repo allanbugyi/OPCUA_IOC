@@ -26,92 +26,81 @@ from opcua import Client, ua
 builder.SetDeviceName('CP_HVAC')
 
 #Automated PV generation from OPC UA XML schema
-nodeExtraction_xml = subprocess.check_output(['sed', '-n', '/^<UAVariable.*BrowseName=".*"*ParentNodeId="ns=.*;s=.*".*DataType=".*"/p', argv[1]])
-#Extracting NodeId, BrowseName, ParentNodeId, DataType, AccessLevel
+
+#Extracting only the nodes, which means all the <UAVariable> items
+nodeExtraction_xml = subprocess.check_output(['sed', '-n', '/^<UAVariable.*BrowseName=".*".*ParentNodeId="ns=.*;s=.*".*DataType=".*"/p', argv[1]])
+#Some variable initialization
+pvs_To_NodesOPCUA_mapping = {}
+
+#Extracting NodeId, BrowseName, ParentNodeId, DataType, AccessLevel from the selected lines
 for line in nodeExtraction_xml.splitlines():
 	#Some pre-processing due to Siemens PLC broken XML
 	newline = line.replace('&quot;', "") 
-	left_junk_exclusion = newline[20:]
-	split_on_whitespaces = left_junk_exclusion.split(" ")
+	
+	left_tag_exclusion = newline[20:]
+	split_on_whitespaces = left_tag_exclusion.split(" ")
 
 	#Extracting NodeId
-	nodeId_value = split_on_whitespaces[0].rstrip('"')
+	nodeId = split_on_whitespaces[0].rstrip('"')
 	#Extracting BrowseName
 	browseName = split_on_whitespaces[1].replace('BrowseName="', "")
 	browseName = browseName.rstrip('"')
 	#Extracting ParentNodeId
 	parentNodeId = split_on_whitespaces[2].replace('ParentNodeId="', "")
 	parentNodeId = parentNodeId.rstrip('"')
-	#Extracting DataType	
-	dataType = split_on_whitespaces[3].replace('DataType="', "")
-	dataType = dataType.rstrip('"')
-	dataType = dataType.rstrip('">')
 	
+	#Deciding whether all the PV creation should continue based on the parent Node. This avoids the creation of unecessary PVs
+	parentNodeId_test = parentNodeId[7:]
+	if((parentNodeId_test == "Inputs") or (parentNodeId_test == "Outputs") or (parentNodeId_test == "HMI") or (parentNodeId_test == "PID_memories")):
+		# continues extracting properties from XML ...		
+		#Extracting DataType	
+		dataType = split_on_whitespaces[3].replace('DataType="', "")
+		dataType = dataType.rstrip('"')
+		dataType = dataType.rstrip('">')
+		#Extracting AccessLevel
+		accessLevel = ""
+		if (len(split_on_whitespaces) > 4):
+			accessLevel = split_on_whitespaces[4].replace('AccessLevel="', "")
+			accessLevel = accessLevel.rstrip('"')
+			accessLevel = accessLevel.rstrip('">')
+		'''
+		#Checks if the PV's name is not already defined (Note: It was defined as a convention that EPICS PVs' names have the 'pv_'preffix)
+		test = "pv_" + parentNodeId[7:] + "_" + browseName[2:] #Notice that for python softIoc we use the convention '_' instead of EPICS' separator ':', 
+								       #which is a special character for Python
+		if(test in pvs_To_NodesOPCUA_mapping):
+			counter = 2
+			test = test + "-"		
+			while True:
+				test = test + str(counter)		
+				if(test in pvs_To_NodesOPCUA_mapping):
+					test = test.rstrip((str(counter)))
+					counter += 1
+				elif(test not in pvs_To_NodesOPCUA_mapping): 
+					#If it's already defined, it creates a unique suffix accordingly (like '_2'for the second time the PV's name appear, 
+					#'_3' for the third time, and so on)
+					browseName = test.replace("pv_", "")
+					break
+		'''
+		#The PV's finals name
+		pvName = "pv_" + parentNodeId[7:] + "_" + browseName[2:]
 
-#Create INPUT PVs
-pv_23B18            = builder.longIn("23B18")		#Temperatura precisão Aquecedor Fino
-pv_23B19            = builder.longIn("23B19")		#Temperatura Ambiente 1
-pv_23B20            = builder.longIn("23B20")		#Temperatura Ambiente 2
-pv_23B21            = builder.longIn("23B21")		#Temperatura Ambiente 3
-pv_23B22            = builder.longIn("23B22")		#Temperatura Ambiente 4
-pv_23B23            = builder.longIn("23B23")		#Pressão Ambiente
-pv_23B24_H          = builder.longIn("23B24_H")		#Umidade Aquecedor Fino
-pv_23B24_T          = builder.longIn("23B24_T")		#Temperatura Aquecedor Fino
-pv_CP_23B10         = builder.longIn("CP-23B10")	#Temperatura Agua entrada
-pv_CP_23B11         = builder.longIn("CP-23B11")	#Temperatura Agua Retorno
-pv_CP_23B13         = builder.longIn("CP-23B13")	#Temperatura precisão Ar Externo
-pv_CP_23B14_H       = builder.longIn("CP-23B14_H")	#Umidade Ar externo
-pv_CP_23B14_T       = builder.longIn("CP-23B14_T")	#Temperatura Ar externo
-pv_CP_23B15         = builder.longIn("CP-23B15")	#Temperatura precisão Retorno
-pv_CP_23B16_H       = builder.longIn("CP-23B16_H")	#Umidade Retorno
-pv_CP_23B16_T       = builder.longIn("CP-23B16_T")	#Temperatura Retorno
-pv_CP_23B17         = builder.longIn("CP-23B17")	#Temperatura precisão Aquecedor Grosseiro
-pv_CP_23B25_H       = builder.longIn("CP-23B25_H")	#Umidade Serpentina
-pv_CP_23B25_T       = builder.longIn("CP-23B25_T") 	#Temperatura Serpentina
-pv_CP_23B26         = builder.longIn("CP-23B26")	#Temperatura Precisão Serpentina
-pv_CP_23B27         = builder.boolIn("CP-23B27")	#Estado Termostato AQ1
-pv_CP_23B28         = builder.longIn("CP-23B28")	#Temperatura precisão Aquecedor Fino
-pv_CP_23B29         = builder.boolIn("CP-23B29")	#Estado Pressostato FC1
-pv_CP_23B30         = builder.longIn("CP-23B30")	#Pressão Filtro Fino
-pv_CP_23B31         = builder.longIn("CP-23B31")	#Pressão Filtro Grosso
-pv_CP_23M10_RET     = builder.longIn("CP-23M10_RET")	#Retorno Dumper FCV152
-pv_CP_23M7_RET      = builder.longIn("CP-23M7_RET")	#Retorno Dumper FCV150
-pv_CP_23M8_RET      = builder.longIn("CP-23M8_RET")	#Retorno Dumper FCV151
-pv_CP_23M9_FDB_Hz   = builder.longIn("P-23M9_FDB_Hz")	#FeedBackV20
-pv_CP_23M9_Status   = builder.boolIn("CP-23M9_Status") 	#Estado Inversor V20 FC1 - FCT140
-pv_CP_23X1_RET      = builder.longIn("CP-23X1_RET")	#Retorno Atuador Valvula
-pv_Emergencia_Gases = builder.boolIn("Emergencia_Gases", ZNAM=False, ONAM=True)
-#pv_PrimaxP_Alm_RL_NC= builder.xxxxIn("")
-#pv_PrimaxP_Alm_RL_NO= builder.xxxxlIn("")
-#pv_PrimaxP_Flr_RL_NC= builder.xxxxIn("")
-#pv_PrimaxP_Flr_RL_NO= builder.xxxxIn("")
-#pv_PrimaxP_VOL_O2   = builder.xxxxIn("")
-pv_StatusContatorAQ1	= builder.boolIn("StatusContatorAQ1", ZNAM=False, ONAM=True) #Estado Contator AQ1
-pv_StatusContatorAQ1_1A = builder.boolIn("StatusContatorAQ1-1A", ZNAM=False, ONAM=True) #Estado Contator AQ1.1A
-pv_StatusDisjuntorMotor1 = builder.boolIn("StatusDisjuntorMotor1", ZNAM=False, ONAM=True) #Estado Disjuntor Motor 1
-
-#Create OUTPUT PVs
-pv_AQ_Reserve		= builder.longOut("AQ_Reserve")		#Inverosr (2)
-pv_CP_PLUS_CP_23W3	= builder.longOut("CP_+_CP-23W3")	#Aquecedor Grosso
-pv_CP_23M10		= builder.longOut("CP-23M10")		#Damper 3 Insulflamento - FCV152
-pv_CP_23M12		= builder.boolOut("CP-23M12")		#Damper 4 Exaustão - FCV154
-pv_CP_23M7		= builder.longOut("CP-23M7")		#Damper 1 Retorno - FCV150
-pv_CP_23M8		= builder.longOut("CP-23M8")		#Damper 2 TAE - FCV151
-pv_CP_23M9_ACK		= builder.boolOut("CP-23M9_ACK")	#V20 FC1 DI3 - ACK Falha
-pv_CP_23M9_Freq_Hz	= builder.longOut("CP-23M9_Freq_Hz")	#Inversor V20 - Frequencia em Hz
-pv_CP_23M9_Jog		= builder.boolOut("CP-23M9_Jog")	#V20 FC1 DI4 - Jog a Frente
-pv_CP_23M9_On_Off	= builder.boolOut("CP-23M9_On/Off")	#V20 FC1 DI1 - On/Off
-pv_CP_23M9_Reverso	= builder.boolOut("CP-23M9_Reverso")	#V20 FC1 DI2 - Reverso
-pv_CP_23W2		= builder.longOut("CP-23W2")		#Aquecedor Fino
-pv_CP_23X1		= builder.longOut("CP-23X1")		#Valvula Agua Gelada
-pv_DQ_RESERVE1		= builder.boolOut("DQ_RESERVE1")	#RESERVE 1
-pv_DQ_RESERVE2		= builder.boolOut("DQ_RESERVE2")	#RESERVE 2
-pv_ResetSecuritySystem	= builder.boolOut("Reset_Security_System")#Reset Security System
-
-#lists of PVs grouped by category
-inputPVs_list = [pv_23B18, pv_23B19, pv_23B20, pv_23B21, pv_23B22, pv_23B23, pv_23B24_H, pv_23B24_T, pv_CP_23B10, pv_CP_23B11, pv_CP_23B13, pv_CP_23B14_H, pv_CP_23B14_T, pv_CP_23B15, 			 pv_CP_23B16_H, pv_CP_23B16_T, pv_CP_23B17, pv_CP_23B25_H, pv_CP_23B25_T, pv_CP_23B26, pv_CP_23B27, pv_CP_23B28, pv_CP_23B29, pv_CP_23B30, pv_CP_23B31, 		 			 pv_CP_23M10_RET, pv_CP_23M7_RET, pv_CP_23M8_RET, pv_CP_23M9_FDB_Hz, pv_CP_23M9_Status, pv_CP_23X1_RET, pv_Emergencia_Gases, pv_StatusContatorAQ1, 			  			 pv_StatusContatorAQ1_1A, pv_StatusDisjuntorMotor1]
-
-outputPVs_list = [pv_AQ_Reserve, pv_CP_PLUS_CP_23W3, pv_CP_23M10, pv_CP_23M12, pv_CP_23M7, pv_CP_23M8, pv_CP_23M9_ACK, pv_CP_23M9_Freq_Hz, pv_CP_23M9_Jog, pv_CP_23M9_On_Off, 			 pv_CP_23M9_On_Off, pv_CP_23M9_Reverso, pv_CP_23W2, pv_CP_23X1, pv_DQ_RESERVE1, pv_DQ_RESERVE2, pv_ResetSecuritySystem] 
+		#Decision making based on which datatype PV will be set
+		if 	(dataType == 'bool' or dataType == 'BOOL'): 
+				nodeOPCUA_properties_list = [nodeId, browseName, parentNodeId, dataType, accessLevel]
+				#PV creation
+				pvItself = builder.boolIn((parentNodeId[7:]+browseName[1:]))
+				linkInformation_array = [nodeOPCUA_properties_list, pvItself]
+				pvs_To_NodesOPCUA_mapping.update({pvName: linkInformation_array})
+		elif	(dataType == "Int16" or dataType == "INT" or dataType == "UInt16" or dataType == "UINT" or dataType == "Int32" 
+			or dataType == "UInt32" or dataType == "UDINT"):				
+				nodeOPCUA_properties_list = [nodeId, browseName, parentNodeId, dataType, accessLevel]
+				#PV creation
+				pvItself = builder.longIn((parentNodeId[7:]+browseName[1:])) 
+				linkInformation_array = [nodeOPCUA_properties_list, pvItself]
+				pvs_To_NodesOPCUA_mapping.update({pvName: linkInformation_array})	
+	else:	
+		continue
+		
 
 #Create OPCUA client
 client = Client("opc.tcp://10.2.121.202:4840")
