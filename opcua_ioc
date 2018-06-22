@@ -1,4 +1,5 @@
-# -*- coding: utf8 -*-
+#/usr/bin/env python
+# -*- coding: utf8 -*-:
 ######################################################################################################################################
 #	EPICS IOC developed with DLS Softioc Framework with support for OPC UA communication based on FreeOpcUa python package       #
 #	Brazilian Synchroton Light Laboratory - Campinas, 06/xx/2018								     #
@@ -8,11 +9,16 @@
 #	Tested  - Siemens PLC S7-1500										     		     #
 ######################################################################################################################################
 
+import sys
 import time
 import subprocess
 from sys import argv
-import numpy as np
+import os
+import logging
 
+from socket import error as socket_error
+
+#python packages from DLS which are dependencies for SoftIioc. Set the 'cothread' and 'epicsdbbuilder' to the right version showed on distribution (in this case, '2.14' and 'development', respectively)
 from pkg_resources import require
 require('cothread==2.14')
 require('epicsdbbuilder==development')
@@ -21,7 +27,14 @@ require('epicsdbbuilder==development')
 from softioc import softioc, builder, device
 
 #FreeOpcUa python package
-from opcua import Client, ua, common
+from opcua import Client, ua
+from opcua.common.subscription import SubHandler
+
+if(((len(argv)) > 1) and argv[1] == "help"):
+	print(" opcua_ioc <'xml'> <'IP:port'>\n \
+		Provide an OPC UA XML as the first argument for importing nodes (e.g., 'opcua_ioc OPCUA_NODES.xml' )\n \
+		You can also provide the IP:port from the OPC UA server to connect. (e.g., 'opcua_ioc OPCUA_NODES.xml 192.168.0.1:4840' )")
+	sys.exit()
 
 #Set IOC's name
 builder.SetDeviceName('CP_HVAC')
@@ -29,7 +42,14 @@ builder.SetDeviceName('CP_HVAC')
 # ------- Automated PV generation from OPC UA XML schema -------
 
 #Extracting only the nodes, which means all the <UAVariable> items
-nodeExtraction_xml = subprocess.check_output(['sed', '-n', '/^<UAVariable.*BrowseName=".*".*ParentNodeId="ns=.*;s=.*".*DataType=".*"/p', argv[1]])
+try:
+	nodeExtraction_xml = subprocess.check_output(['sed', '-n', '/^<UAVariable.*BrowseName=".*".*ParentNodeId="ns=.*;s=.*".*DataType=".*"/p', argv[1]])
+except (subprocess.CalledProcessError, IndexError):
+	sys.exit("Invalid file input. Please provide an OPC UA XML for importing nodes.")
+
+if (nodeExtraction_xml == ""):
+	sys.exit("Invalid file input. Please provide an OPC UA XML for importing nodes.")
+
 #Some variable initialization
 pvs_To_NodesOPCUA_mapping = {}
 
@@ -95,58 +115,79 @@ for line in nodeExtraction_xml.splitlines():
 				pvItself = builder.longIn((parentNodeId_test+browseName[1:]))#PV's name fiting EPICS convention, with the ':' separating PVs' names,so 'caget' works fine 
 				linkInformation_array = [nodeOPCUA_properties_list, pvItself]
 				pvs_To_NodesOPCUA_mapping.update({pvName: linkInformation_array})	
+		elif	(dataType == "Float" or dataType == "REAL"):
+				nodeOPCUA_properties_list = [nodeId, browseName, parentNodeId, dataType, accessLevel]
+				#PV creation
+				pvItself = builder.aIn((parentNodeId_test+browseName[1:]))#PV's name fiting EPICS convention, with the ':' separating PVs' names,so 'caget' works fine 
+				linkInformation_array = [nodeOPCUA_properties_list, pvItself]
+				pvs_To_NodesOPCUA_mapping.update({pvName: linkInformation_array})	
 	else:	
 		continue
 		
 # ---------------------------------------------------------
 
+''' Created for FreeOpcUa Event subscription
+class mySubHandler(SubHandler):
+
+	#def __init__(self, obj):
+	#	self.obj = obj
+	def datachange_notification(self, node, val, data):
+		print (node.name)		
+		#print("* " + (str(node.get_display_name())) + "\t" + str(node.get_value()) + " *")
+		
+	#def event_notification(self, event): 
+'''
 #Create OPCUA client using the OPC UA server's 'IP:port' address
-if(argv[2]==""):
-	client = Client("opc.tcp://10.2.121.202:4840")
-else:
+if((len(argv)) > 2):
 	client = Client("opc.tcp://" + argv[2])
- 
+else:
+	client = Client("opc.tcp://10.2.121.202:4840") #Fixed server address and port
+
 try:
 	#Establish connection with OPC UA Server
 	client.connect()
-
+	
 	#function for monitoring the specified INPUT PV, equivalent to camonitor Channel Access command
 	def monitorPV (pv_name, scan_period):
+		''' FreeOpcUa Event Subscription: supposed to work, but after many tries, apparently not.	
 		arrayMappedPV = pvs_To_NodesOPCUA_mapping[pv_name]
 		nodeOPCUA_properties_list = arrayMappedPV[0]
-		nodeId = nodeOPCUA_properties_list[0]	
-		handler = SubHandler()
-        	sub = opcua_server.create_subscription(500, handler)
-		node = client.get_node(nodeId)
-        	handle = sub.subscribe_data_change(node)		
+		nodeId = nodeOPCUA_properties_list[0]
+		pvNode = client.get_node(nodeId)
+		handler = mySubHandler()
+        	sub = client.create_subscription(1, handler)
+        	handle = sub.subscribe_data_change(pvNode)	
+		#handle = sub.unsubscribe(handle)	
 		'''
-		#preparing string equivalent to BrowseName field format from the Node (which represents the PV) in OPC UA Server address space
-		pv_name_str = pv.name 				#storing the pv's complete name 
-		record_name = pv_name_str[8:]			#removing the Device prefix from the pv's name
-		opcua_node_browseName = "3:"+record_name 	#adding the level found in OPC UA server's address space (in this case 3) and setting the BrowseName 
-		#executes till user terminates		
+			
 		try:		
-			while True:
-				opcua_childNode_pv = parentNode_INPUT_PVs.get_child(opcua_node_browseName)
-				(pv).set(int (opcua_childNode_pv.get_value()))
-				print((pv.name) + "\t" + str((pv).get()))
+			arrayMappedPV = pvs_To_NodesOPCUA_mapping[pv_name]
+			nodeOPCUA_properties_list = arrayMappedPV[0]
+			pv = arrayMappedPV[1]
+			nodeId = nodeOPCUA_properties_list[0]
+			opcua_node_pv = client.get_node(nodeId)
+			oldValue = opcua_node_pv.get_value()
+			while True:	
+				currentValue = opcua_node_pv.get_value()
+				if (currentValue != oldValue):				
+					print("  " + (pv.name) + "\t" + str(opcua_node_pv.get_value()))
+				else:
+					print("**" + (pv.name) + "\t" + str(opcua_node_pv.get_value()) + "** \tData change event detected!")
 				time.sleep(scan_period)	
-		except KeyboardInterrupt, e:
+		except KeyboardInterrupt:
 			print "\n- Stopped Monitoring -"
-		'''
 
 	#readPV and writePV: functions to read and write to specific PVs, equivalent to caget and caput Channel Access commands
 	
-	def readPV (pv):
-		'''
-		#preparing string equivalent to BrowseName field format from the Node (which represents the PV) in OPC UA Server address space
-		pv_name_str = pv.name 				#storing the pv's complete name 
-		record_name = pv_name_str[8:]			#removing the Device prefix from the pv's name
-		opcua_node_browseName = "3:"+record_name 	#adding the level found in OPC UA server's address space (in this case 3) and setting the BrowseName 
-		opcua_childNode_pv = parentNode_OUTPUT_PVs.get_child(opcua_node_browseName)
-		(pv).set(int (opcua_childNode_pv.get_value()))
-		print((pv.name) + "\t" + str((pv).get()))
-		'''
+	def readPV (pv_name):
+		arrayMappedPV = pvs_To_NodesOPCUA_mapping[pv_name]
+		nodeOPCUA_properties_list = arrayMappedPV[0]
+		pv = arrayMappedPV[1]
+		nodeId = nodeOPCUA_properties_list[0]
+		opcua_node_pv = client.get_node(nodeId)
+		pv.set(opcua_node_pv.get_value())
+		print((pv.name) + "\t" + str(pv.get()))
+
 	def writePV (pv_name, value):
 		arrayMappedPV = pvs_To_NodesOPCUA_mapping[pv_name]
 		nodeOPCUA_properties_list = arrayMappedPV[0]
@@ -156,10 +197,10 @@ try:
 		opcua_node_pv = client.get_node(nodeId)
 		var = ua.Variant(value, (opcua_node_pv.get_data_type_as_variant_type()))
 		
-		print((pv.name) + "\tOld value: " + str((pv).get()))
+		print((pv.name) + "\tOld value: " + str(opcua_node_pv.get_value()))
 		opcua_node_pv.set_value(var)
 		pv.set(opcua_node_pv.get_value())	
-		print((pv.name) + "\tNew value: " + str((pv).get()))
+		print((pv.name) + "\tNew value: " + str(pv.get()))
 
 	# Run the IOC.  This is boilerplate, and must always be done in this order,
 	# and must always be done after creating all PVs.
@@ -167,9 +208,7 @@ try:
 	softioc.iocInit()
 	
 	softioc.interactive_ioc(globals())
-finally:
+	
 	client.disconnect()
-
-
-
-
+except socket_error: 
+	sys.exit("Invalid IP address")
