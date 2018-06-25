@@ -15,6 +15,7 @@ import subprocess
 from sys import argv
 import os
 import logging
+import threading
 
 from socket import error as socket_error
 
@@ -64,7 +65,7 @@ for line in nodeExtraction_xml.splitlines():
 	#Extracting NodeId
 	nodeId = split_on_whitespaces[0]
 	#print nodeId
-	if((nodeId[((len(nodeId))-1)] == '"') and  (nodeId[((len(nodeId))-2)] == '"')): 
+	if((nodeId[((len(nodeId))-1)] == '"') and (nodeId[((len(nodeId))-2)] == '"')): 
 		nodeId = nodeId[:-1]
 	else: 
 		nodeId = nodeId.rstrip('"')
@@ -118,7 +119,7 @@ for line in nodeExtraction_xml.splitlines():
 		elif	(dataType == "Float" or dataType == "REAL"):
 				nodeOPCUA_properties_list = [nodeId, browseName, parentNodeId, dataType, accessLevel]
 				#PV creation
-				pvItself = builder.aIn((parentNodeId_test+browseName[1:]))#PV's name fiting EPICS convention, with the ':' separating PVs' names,so 'caget' works fine 
+				pvItself = builder.aIn((parentNodeId_test+browseName[1:]))#PV's name fiting EPICS convention, with the ':' separating PVs' names, so 'caget' works fine 
 				linkInformation_array = [nodeOPCUA_properties_list, pvItself]
 				pvs_To_NodesOPCUA_mapping.update({pvName: linkInformation_array})	
 	else:	
@@ -126,17 +127,6 @@ for line in nodeExtraction_xml.splitlines():
 		
 # ---------------------------------------------------------
 
-''' Created for FreeOpcUa Event subscription
-class mySubHandler(SubHandler):
-
-	#def __init__(self, obj):
-	#	self.obj = obj
-	def datachange_notification(self, node, val, data):
-		print (node.name)		
-		#print("* " + (str(node.get_display_name())) + "\t" + str(node.get_value()) + " *")
-		
-	#def event_notification(self, event): 
-'''
 #Create OPCUA client using the OPC UA server's 'IP:port' address
 if((len(argv)) > 2):
 	client = Client("opc.tcp://" + argv[2])
@@ -146,9 +136,43 @@ else:
 try:
 	#Establish connection with OPC UA Server
 	client.connect()
-	
-	#function for monitoring the specified INPUT PV, equivalent to camonitor Channel Access command
+
+	#function for monitoring the specified PV based on scan period
 	def monitorPV (pv_name, scan_period):
+		try:		
+			arrayMappedPV = pvs_To_NodesOPCUA_mapping[pv_name]
+			nodeOPCUA_properties_list = arrayMappedPV[0]
+			pv = arrayMappedPV[1]
+			nodeId = nodeOPCUA_properties_list[0]
+			opcua_node_pv = client.get_node(nodeId)
+			oldValue = opcua_node_pv.get_value()
+			while True:	
+				currentValue = opcua_node_pv.get_value()
+				if (currentValue == oldValue):				
+					print("  " + (pv.name) + "\t" + str(opcua_node_pv.get_value()))
+				else:
+					print("**" + (pv.name) + "\t" + str(opcua_node_pv.get_value()) + "\tData change event detected!**")
+					pv.set(opcua_node_pv.get_value())
+				oldValue = currentValue
+				time.sleep(scan_period)	
+		except KeyboardInterrupt:
+			print "\n- Stopped Monitoring -"
+
+
+	''' Created for FreeOpcUa Event subscription
+	class mySubHandler(SubHandler):
+
+		#def __init__(self, obj):
+		#	self.obj = obj
+		def datachange_notification(self, node, val, data):
+			print (node.name)		
+			#print("* " + (str(node.get_display_name())) + "\t" + str(node.get_value()) + " *")
+		
+		#def event_notification(self, event): 
+	'''
+
+	#function for monitoring the specified PV based on datachange event subscription (self-implementation using threads and network I/O operation)
+	def monitorPV (pv_name, stop_event):
 		''' FreeOpcUa Event Subscription: supposed to work, but after many tries, apparently not.	
 		arrayMappedPV = pvs_To_NodesOPCUA_mapping[pv_name]
 		nodeOPCUA_properties_list = arrayMappedPV[0]
@@ -159,26 +183,22 @@ try:
         	handle = sub.subscribe_data_change(pvNode)	
 		#handle = sub.unsubscribe(handle)	
 		'''
-			
-		try:		
-			arrayMappedPV = pvs_To_NodesOPCUA_mapping[pv_name]
-			nodeOPCUA_properties_list = arrayMappedPV[0]
-			pv = arrayMappedPV[1]
-			nodeId = nodeOPCUA_properties_list[0]
-			opcua_node_pv = client.get_node(nodeId)
-			oldValue = opcua_node_pv.get_value()
-			while True:	
-				currentValue = opcua_node_pv.get_value()
-				if (currentValue != oldValue):				
-					print("  " + (pv.name) + "\t" + str(opcua_node_pv.get_value()))
-				else:
-					print("**" + (pv.name) + "\t" + str(opcua_node_pv.get_value()) + "** \tData change event detected!")
-				time.sleep(scan_period)	
-		except KeyboardInterrupt:
-			print "\n- Stopped Monitoring -"
+		arrayMappedPV = pvs_To_NodesOPCUA_mapping[pv_name]
+		nodeOPCUA_properties_list = arrayMappedPV[0]
+		pv = arrayMappedPV[1]
+		nodeId = nodeOPCUA_properties_list[0]
+		opcua_node_pv = client.get_node(nodeId)
+		oldValue = opcua_node_pv.get_value()
+		while not stop_event.is_set():	
+			currentValue = opcua_node_pv.get_value()
+			if (currentValue != oldValue):
+				print("**" + (pv.name) + "\t" + str(opcua_node_pv.get_value()) + "\tData change event detected!**")
+				pv.set(opcua_node_pv.get_value())
+			oldValue = currentValue
+		stop_event.clear()
+		return
 
 	#readPV and writePV: functions to read and write to specific PVs, equivalent to caget and caput Channel Access commands
-	
 	def readPV (pv_name):
 		arrayMappedPV = pvs_To_NodesOPCUA_mapping[pv_name]
 		nodeOPCUA_properties_list = arrayMappedPV[0]
@@ -201,6 +221,19 @@ try:
 		opcua_node_pv.set_value(var)
 		pv.set(opcua_node_pv.get_value())	
 		print((pv.name) + "\tNew value: " + str(pv.get()))
+
+	stop_event = threading.Event()
+	threads_dic = {}
+	def subscribeDataChange(pv_name):
+		if (pv_name not in threads_dic):
+			threads_dic[pv_name] = (threading.Thread(target = monitorPV, kwargs = {'pv_name': pv_name, 'stop_event': stop_event}))
+			thread = threads_dic[pv_name]
+			thread.start()
+
+	def unsubscribeDataChange(pv_name):
+		if (pv_name in threads_dic):			
+			stop_event.set()
+			del threads_dic[pv_name]
 
 	# Run the IOC.  This is boilerplate, and must always be done in this order,
 	# and must always be done after creating all PVs.
