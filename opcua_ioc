@@ -1,4 +1,3 @@
-#/usr/bin/env python
 # -*- coding: utf8 -*-:
 ######################################################################################################################################
 #	EPICS IOC developed with DLS Softioc Framework with support for OPC UA communication based on FreeOpcUa python package       #
