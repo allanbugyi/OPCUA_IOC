@@ -27,14 +27,14 @@ For any other questions contact: (allan.bugyi@lnls.br)
 
 Directory Structure
 ===================
-bin/			-	Contains softIoc binary within a subdirectory named with the target architecture
-dbd/			-	database definition files for softIoc
-python/			-	softIoc python packages
-opcua_ioc		-	IOC's python script
-pythonIoc.in		-	IOC initialization file
-HVAC.PLC_1.OPCUA.xml	- 	OPC UA xml file for running tests
-epicsdbbuilder-1.1/	-	SoftIoc dependency
-cothread-2-14		-	SoftIoc dependency
-pythonSoftIoc-2.11	-	SoftIoc source code
+bin/				Contains softIoc binary within a subdirectory named with the target architecture
+dbd/				database definition files for softIoc
+python/				softIoc python packages
+opcua_ioc			IOC's python script
+pythonIoc.in			IOC initialization file
+HVAC.PLC_1.OPCUA.xml	 	OPC UA xml file for running tests
+epicsdbbuilder-1.1/		SoftIoc dependency
+cothread-2-14			SoftIoc dependency
+pythonSoftIoc-2.11		SoftIoc source code
 
 
