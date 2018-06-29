@@ -13,7 +13,7 @@ Tested with Python 3.5.3
 
 For SoftIoc the dependencies are 'cothread' (run 'pip3 install cothread') and 'epicsdbbuilder'(inside its subdirectory run 'python3 setup.py install'). 
 
-In order to install 'FreeOpcUa', run 'pip install opcua'. For details, check the github project in this link: (https://github.com/FreeOpcUa/python-opcua)
+In order to install 'FreeOpcUa', run 'pip3 install opcua'. For details, check the github project in this link: (https://github.com/FreeOpcUa/python-opcua)
 
 Running the IOC
 ===============
