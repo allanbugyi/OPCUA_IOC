@@ -56,7 +56,8 @@ pvs_To_NodesOPCUA_mapping = {}
 #Extracting NodeId, BrowseName, ParentNodeId, DataType, AccessLevel from the selected lines
 for line in nodeExtraction_xml.splitlines():
 	#Some pre-processing due to Siemens PLC broken XML
-	newline = line.replace('&quot;', '"') 
+	line_str = line.decode()
+	newline = line_str.replace('&quot;', '"') 
 	
 	left_tag_exclusion = newline[20:]
 	split_on_whitespaces = left_tag_exclusion.split(" ")
@@ -155,7 +156,7 @@ try:
 				oldValue = currentValue
 				time.sleep(scan_period)	
 		except KeyboardInterrupt:
-			print "\n- Stopped Monitoring -"
+			print ("\n- Stopped Monitoring -")
 
 
 	''' Created for FreeOpcUa Event subscription

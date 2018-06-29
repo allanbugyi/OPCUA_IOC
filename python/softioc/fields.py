@@ -1,7 +1,10 @@
 '''Access to fields within a record structure.'''
 
+from __future__ import print_function
+
+import sys
 from ctypes import *
-from imports import get_field_offsets
+from .imports import get_field_offsets
 import numpy
 
 from cothread.dbr import *
@@ -74,15 +77,30 @@ DbrToDbfCode = {
 }
 
 
+if sys.version_info >= (3,):
+    def decode(string):
+        return string.decode()
+    def encode(string):
+        return string.encode()
+else:
+    def decode(string):
+        return string
+    def encode(string):
+        return string
+
+
 class RecordFactory(object):
     def __init__(self, record_type, fields):
         '''Uses the EPICS static database to discover the offset in the record
         type and the size of each of the specified fields.'''
         length = len(fields)
-        field_name_strings = map(create_string_buffer, fields)
+        field_name_strings = [
+            create_string_buffer(field.encode())
+            for field in fields]
 
         field_names = (c_void_p * len(field_name_strings))()
-        field_names[:] = map(addressof, field_name_strings)
+        for i, field in enumerate(field_name_strings):
+            field_names[i] = addressof(field)
 
         field_offsets = numpy.empty(length, dtype = numpy.int16)
         field_sizes   = numpy.zeros(length, dtype = numpy.int16)
@@ -128,7 +146,9 @@ class _Record(object):
         if field == 'TIME':
             return self.__get_time(address)
         elif field_type == DBF_STRING:
-            return string_at(cast(address, c_char_p))
+            return decode(string_at(string_at(cast(address, c_char_p), 40)))
+        elif field_type in [DBF_INLINK, DBF_OUTLINK]:
+            return decode(cast(address, POINTER(c_char_p))[0])
         else:
             ctypes_type = DbfCodeToCtypes[field_type]
             return cast(address, POINTER(ctypes_type))[0]
@@ -140,7 +160,7 @@ class _Record(object):
         if field == 'TIME':
             self.__set_time(address, value)
         elif field_type == DBF_STRING:
-            value = str(value)
+            value = encode(str(value))
             buffer = create_string_buffer(value)
             if size > len(value) + 1:
                 size = len(value) + 1
