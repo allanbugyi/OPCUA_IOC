@@ -35,7 +35,6 @@ dbd/				Database definition files for softIoc
 python/				SoftIoc python packages
 opcua_ioc			* IOC's python script * 
 pythonIoc			IOC initialization file
-HVAC.PLC_1.OPCUA.xml	 	OPC UA xml file for running tests
 epicsdbbuilder			SoftIoc dependency
 pythonIoc_src			SoftIoc source code
 
